@@ -1,22 +1,55 @@
-# File: /ahorrinbot/ahorrinbot/src/services/speech_to_text.py
+"""
+Servicios de transcripción de audio usando la API de OpenAI (modelo 'whisper-1').
 
-import whisper
+Notas:
+- Evita instalar whisper/torch en Railway.
+- Requiere OPENAI_API_KEY en las env vars (config.setup_third_party_keys() ya lo configura).
+- Funciones sin dependencias pesadas; devuelven texto transcrito.
+"""
 
-def transcribe_audio(file_path: str, language: str = "es") -> str:
-    """Transcribes audio from the given file path using the Whisper model.
+import os
+import io
+from typing import Optional
 
-    Args:
-        file_path (str): The path to the audio file to be transcribed.
-        language (str): The language of the audio. Default is Spanish ("es").
+import openai
 
-    Returns:
-        str: The transcribed text from the audio file.
+
+def _ensure_api_key() -> None:
+    if not getattr(openai, "api_key", None):
+        openai.api_key = os.getenv("OPENAI_API_KEY")
+
+
+def transcribe_file(path: str, model: str = "whisper-1") -> str:
     """
-    # Load the Whisper model. This can be adjusted based on available resources.
-    model = whisper.load_model("base", device="cpu")
-    
-    # Transcribe the audio file
-    result = model.transcribe(file_path, language=language)
-    
-    # Return the transcribed text
-    return result["text"]
+    Transcribe a local audio file to text using OpenAI's audio transcription.
+    path: ruta al archivo de audio (ogg, mp3, wav, m4a, etc.)
+    Devuelve la transcripción (texto) o cadena vacía en fallo.
+    """
+    _ensure_api_key()
+    try:
+        with open(path, "rb") as f:
+            resp = openai.Audio.transcribe(model, f)
+        # La respuesta suele ser un dict con clave "text"
+        if isinstance(resp, dict):
+            return resp.get("text", "") or ""
+        return str(resp)
+    except Exception as exc:
+        # No imprimir secrets en logs; devolver mensaje corto para debug
+        return ""
+
+
+def transcribe_bytes(audio_bytes: bytes, filename: Optional[str] = "audio.webm", model: str = "whisper-1") -> str:
+    """
+    Transcribe audio dado como bytes. Useful cuando recibes el audio desde Telegram
+    sin guardarlo en disco. `filename` es sólo para informar al SDK sobre el mime.
+    """
+    _ensure_api_key()
+    try:
+        with io.BytesIO(audio_bytes) as bio:
+            bio.name = filename  # some SDKs check the attribute
+            resp = openai.Audio.transcribe(model, bio)
+        if isinstance(resp, dict):
+            return resp.get("text", "") or ""
+        return str(resp)
+    except Exception:
+        return ""
